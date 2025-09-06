@@ -10,12 +10,15 @@
     },
     "dependencies": {
         "@netlify/blobs": "^8.2.0",
+        "@react-three/fiber": "^9.3.0",
+        "@react-three/xr": "^6.6.25",
         "blobshape": "^1.0.0",
-        "bright": "^0.8.5",
+        "bright": "^1.0.0",
         "markdown-to-jsx": "^7.4.5",
         "next": "15.5.0",
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
+        "three": "^0.180.0",
         "unique-names-generator": "^4.7.1"
     },
     "devDependencies": {
