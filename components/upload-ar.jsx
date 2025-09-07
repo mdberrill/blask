@@ -26,16 +26,111 @@ export default function UploadAR({ videoSrc }) {
         vid.loop = true;
         vid.muted = true; // autoplay policies
         vid.playsInline = true;
-    // make the element part of the DOM but hidden; this can help on some mobile browsers
-    vid.style.position = 'absolute';
-    vid.style.left = '-9999px';
-    vid.style.width = '1px';
-    vid.style.height = '1px';
-    document.body.appendChild(vid);
+        // make the element part of the DOM but hidden; this can help on some mobile browsers
+        vid.style.position = 'absolute';
+        vid.style.left = '-9999px';
+        vid.style.width = '1px';
+        vid.style.height = '1px';
+        document.body.appendChild(vid);
 
         let createdTex = null;
+        let segmentationLoop = { running: false, cancel: false };
+        let model = null;
+        let sourceCanvas = null;
+        let outputCanvas = null;
+        let canvasTex = null;
+
+        const initBodyPix = async (videoEl) => {
+            try {
+                // Load TF backend and BodyPix dynamically to avoid SSR and extra bundle cost
+                const tf = await import('@tensorflow/tfjs');
+                // prefer webgl if available
+                try { await tf.setBackend('webgl'); } catch (e) {}
+                await tf.ready();
+                const bodyPix = await import('@tensorflow-models/body-pix');
+
+                // lightweight model config for real-time on mobile
+                model = await bodyPix.load({ architecture: 'MobileNetV1', outputStride: 16, multiplier: 0.75, quantBytes: 2 });
+
+                // create canvases sized to video
+                const w = videoEl.videoWidth || 640;
+                const h = videoEl.videoHeight || 360;
+                sourceCanvas = document.createElement('canvas');
+                sourceCanvas.width = w;
+                sourceCanvas.height = h;
+                outputCanvas = document.createElement('canvas');
+                outputCanvas.width = w;
+                outputCanvas.height = h;
+
+                // create a THREE texture from the output canvas
+                canvasTex = new THREE.CanvasTexture(outputCanvas);
+                canvasTex.minFilter = THREE.LinearFilter;
+                canvasTex.magFilter = THREE.LinearFilter;
+                canvasTex.format = THREE.RGBAFormat;
+
+                // swap texture into state so the AR material uses it
+                setTexture(canvasTex);
+
+                // segmentation loop
+                segmentationLoop.running = true;
+
+                const sourceCtx = sourceCanvas.getContext('2d');
+                const outCtx = outputCanvas.getContext('2d');
+
+                // target FPS for segmentation (tune for performance)
+                const targetFps = 12;
+                const frameDelay = 1000 / targetFps;
+
+                async function runLoop() {
+                    let last = performance.now();
+                    while (segmentationLoop.running && !segmentationLoop.cancel) {
+                        const now = performance.now();
+                        if (now - last < frameDelay) {
+                            // small sleep between frames to cap CPU
+                            await new Promise(r => setTimeout(r, 5));
+                            continue;
+                        }
+                        last = now;
+
+                        try {
+                            // draw current video frame to source
+                            sourceCtx.drawImage(videoEl, 0, 0, sourceCanvas.width, sourceCanvas.height);
+
+                            // ask BodyPix for a person mask
+                            const segmentation = await model.segmentPerson(sourceCanvas, { internalResolution: 'medium', segmentationThreshold: 0.7 });
+
+                            // pull pixel data and apply alpha from mask
+                            const src = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+                            const out = outCtx.createImageData(sourceCanvas.width, sourceCanvas.height);
+                            const mask = segmentation.data;
+                            // mask length == width*height; src.data length == width*height*4
+                            for (let i = 0, p = 0; i < mask.length; i++, p += 4) {
+                                const alpha = mask[i] ? 255 : 0;
+                                out.data[p] = src.data[p];
+                                out.data[p + 1] = src.data[p + 1];
+                                out.data[p + 2] = src.data[p + 2];
+                                out.data[p + 3] = alpha;
+                            }
+
+                            outCtx.putImageData(out, 0, 0);
+
+                            // update three texture
+                            if (canvasTex) canvasTex.needsUpdate = true;
+                        } catch (e) {
+                            // segmentation can fail if video not ready; ignore and continue
+                        }
+                    }
+                }
+
+                runLoop().catch(() => {});
+            } catch (e) {
+                // bodypix not available or failed; fall back to video texture
+                console.warn('BodyPix init failed:', e);
+            }
+        };
 
         const handleCanPlay = () => {
+            // create a temporary video texture immediately so preview can show
             const tex = new THREE.VideoTexture(vid);
             tex.minFilter = THREE.LinearFilter;
             tex.magFilter = THREE.LinearFilter;
@@ -44,6 +139,9 @@ export default function UploadAR({ videoSrc }) {
             setTexture(tex);
             // attempt to play; user may need to tap to start in some browsers
             vid.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+
+            // kick off BodyPix initialization; if it succeeds it will replace the texture
+            initBodyPix(vid);
         };
 
         vid.addEventListener('canplay', handleCanPlay);
@@ -51,10 +149,17 @@ export default function UploadAR({ videoSrc }) {
         videoRef.current = vid;
 
         return () => {
+            // stop segmentation loop
+            segmentationLoop.cancel = true;
+            segmentationLoop.running = false;
+
             vid.pause();
             vid.removeEventListener('canplay', handleCanPlay);
             if (createdTex) {
-                createdTex.dispose();
+                try { createdTex.dispose(); } catch (e) {}
+            }
+            if (canvasTex) {
+                try { canvasTex.dispose(); } catch (e) {}
             }
             // remove the hidden video element from DOM
             try {
