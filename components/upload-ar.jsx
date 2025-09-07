@@ -74,6 +74,8 @@ export default function UploadAR({ videoSrc }) {
                 canvasTex.minFilter = THREE.LinearFilter;
                 canvasTex.magFilter = THREE.LinearFilter;
                 canvasTex.format = THREE.RGBAFormat;
+                // ensure alpha is preserved and not premultiplied incorrectly
+                canvasTex.premultiplyAlpha = false;
 
                 // swap texture into state so the AR material uses it
                 setTexture(canvasTex);
@@ -81,8 +83,8 @@ export default function UploadAR({ videoSrc }) {
                 // segmentation loop
                 segmentationLoop.running = true;
 
-                const sourceCtx = sourceCanvas.getContext('2d');
-                const outCtx = outputCanvas.getContext('2d');
+                const sourceCtx = sourceCanvas.getContext('2d', { alpha: true });
+                const outCtx = outputCanvas.getContext('2d', { alpha: true });
 
                 // target FPS for segmentation (tune for performance)
                 const targetFps = 12;
@@ -294,7 +296,7 @@ export default function UploadAR({ videoSrc }) {
                 )}
 
                 {(xrSupported === true || preview3D) && (
-                    <Canvas>
+                    <Canvas gl={{ alpha: true, preserveDrawingBuffer: false }}>
                         <XR store={store} inline={!xrSupported || preview3D}>
                             {texture ? (
                                 <>
@@ -378,7 +380,8 @@ function VideoMesh({ texture, videoRef }) {
 
     // update the video texture each frame so it shows animation in AR
     useFrame(() => {
-        if (texture && texture.isVideoTexture) {
+        if (texture) {
+            // If it's a VideoTexture it will animate; if it's a CanvasTexture from BodyPix we still need to mark it
             texture.needsUpdate = true;
         }
     });
@@ -399,7 +402,14 @@ function VideoMesh({ texture, videoRef }) {
     return (
         <mesh ref={meshRef} position={[0, 1.2, -1.5]} rotation={[0, 0, 0]}>
             <planeGeometry args={size} />
-            <meshBasicMaterial toneMapped={false} map={texture} side={THREE.DoubleSide} />
+            <meshBasicMaterial
+                toneMapped={false}
+                map={texture}
+                side={THREE.DoubleSide}
+                transparent={true}
+                alphaTest={0.01}
+                depthWrite={false}
+            />
         </mesh>
     );
 }
