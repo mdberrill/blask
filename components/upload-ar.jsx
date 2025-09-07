@@ -45,12 +45,19 @@ export default function UploadAR({ videoSrc }) {
                 // Load TF backend and BodyPix dynamically to avoid SSR and extra bundle cost
                 const tf = await import('@tensorflow/tfjs');
                 // prefer webgl if available
-                try { await tf.setBackend('webgl'); } catch (e) {}
+                try {
+                    await tf.setBackend('webgl');
+                } catch (e) {}
                 await tf.ready();
                 const bodyPix = await import('@tensorflow-models/body-pix');
 
                 // lightweight model config for real-time on mobile
-                model = await bodyPix.load({ architecture: 'MobileNetV1', outputStride: 16, multiplier: 0.75, quantBytes: 2 });
+                model = await bodyPix.load({
+                    architecture: 'MobileNetV1',
+                    outputStride: 16,
+                    multiplier: 0.75,
+                    quantBytes: 2
+                });
 
                 // create canvases sized to video
                 const w = videoEl.videoWidth || 640;
@@ -87,7 +94,7 @@ export default function UploadAR({ videoSrc }) {
                         const now = performance.now();
                         if (now - last < frameDelay) {
                             // small sleep between frames to cap CPU
-                            await new Promise(r => setTimeout(r, 5));
+                            await new Promise((r) => setTimeout(r, 5));
                             continue;
                         }
                         last = now;
@@ -97,7 +104,10 @@ export default function UploadAR({ videoSrc }) {
                             sourceCtx.drawImage(videoEl, 0, 0, sourceCanvas.width, sourceCanvas.height);
 
                             // ask BodyPix for a person mask
-                            const segmentation = await model.segmentPerson(sourceCanvas, { internalResolution: 'medium', segmentationThreshold: 0.7 });
+                            const segmentation = await model.segmentPerson(sourceCanvas, {
+                                internalResolution: 'medium',
+                                segmentationThreshold: 0.7
+                            });
 
                             // pull pixel data and apply alpha from mask
                             const src = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
@@ -138,7 +148,9 @@ export default function UploadAR({ videoSrc }) {
             createdTex = tex;
             setTexture(tex);
             // attempt to play; user may need to tap to start in some browsers
-            vid.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+            vid.play()
+                .then(() => setPlaying(true))
+                .catch(() => setPlaying(false));
 
             // kick off BodyPix initialization; if it succeeds it will replace the texture
             initBodyPix(vid);
@@ -156,10 +168,14 @@ export default function UploadAR({ videoSrc }) {
             vid.pause();
             vid.removeEventListener('canplay', handleCanPlay);
             if (createdTex) {
-                try { createdTex.dispose(); } catch (e) {}
+                try {
+                    createdTex.dispose();
+                } catch (e) {}
             }
             if (canvasTex) {
-                try { canvasTex.dispose(); } catch (e) {}
+                try {
+                    canvasTex.dispose();
+                } catch (e) {}
             }
             // remove the hidden video element from DOM
             try {
@@ -205,7 +221,9 @@ export default function UploadAR({ videoSrc }) {
                         const WebXRPolyfill = mod && (mod.default || mod.WebXRPolyfill || mod.WebXRPolyfill_default);
                         if (WebXRPolyfill) {
                             // instantiate polyfill
-                            try { new WebXRPolyfill(); } catch (e) {}
+                            try {
+                                new WebXRPolyfill();
+                            } catch (e) {}
                         }
                     } catch (e) {
                         // swallow: polyfill not installed
@@ -229,7 +247,9 @@ export default function UploadAR({ videoSrc }) {
             const mod = await import('webxr-polyfill');
             const WebXRPolyfill = mod && (mod.default || mod.WebXRPolyfill || mod.WebXRPolyfill_default);
             if (WebXRPolyfill) {
-                try { new WebXRPolyfill(); } catch (e) {}
+                try {
+                    new WebXRPolyfill();
+                } catch (e) {}
                 // re-check support
                 if (navigator.xr && navigator.xr.isSessionSupported) {
                     const supported = await navigator.xr.isSessionSupported('immersive-ar');
@@ -252,73 +272,102 @@ export default function UploadAR({ videoSrc }) {
             </div>
 
             <div style={{ width: '100%', height: '60vh', maxWidth: 640 }}>
-                    {xrSupported === false && !preview3D && (
-                        <div className="p-4 border rounded bg-yellow-50">
-                            <div className="mb-2 font-medium">WebXR not supported on this device/browser</div>
-                            <div className="text-sm mb-3">You can still preview the scene inline. For full AR you need a compatible browser/device (Chrome on Android or supported WebXR browsers).</div>
-                            <div className="flex gap-2">
-                                <button className="px-3 py-2 bg-sky-600 text-white rounded" onClick={() => setPreview3D(true)}>Open 3D preview</button>
-                                <button className="px-3 py-2 bg-white border rounded" onClick={() => tryPolyfill()}>Try polyfill</button>
-                            </div>
+                {xrSupported === false && !preview3D && (
+                    <div className="p-4 border rounded bg-yellow-50">
+                        <div className="mb-2 font-medium">WebXR not supported on this device/browser</div>
+                        <div className="text-sm mb-3">
+                            You can still preview the scene inline. For full AR you need a compatible browser/device
+                            (Chrome on Android or supported WebXR browsers).
                         </div>
-                    )}
+                        <div className="flex gap-2">
+                            <button
+                                className="px-3 py-2 bg-sky-600 text-white rounded"
+                                onClick={() => setPreview3D(true)}
+                            >
+                                Open 3D preview
+                            </button>
+                            <button className="px-3 py-2 bg-white border rounded" onClick={() => tryPolyfill()}>
+                                Try polyfill
+                            </button>
+                        </div>
+                    </div>
+                )}
 
-                    {(xrSupported === true || preview3D) && (
-                        <Canvas>
-                            <XR store={store} inline={!xrSupported || preview3D}>
-                                {texture ? (
-                                    <>
-                                        <PlacementHandler onPlace={(pos, rot) => { setTransform({ position: pos, rotation: rot }); setPlaced(true); }} />
+                {(xrSupported === true || preview3D) && (
+                    <Canvas>
+                        <XR store={store} inline={!xrSupported || preview3D}>
+                            {texture ? (
+                                <>
+                                    <PlacementHandler
+                                        onPlace={(pos, rot) => {
+                                            setTransform({ position: pos, rotation: rot });
+                                            setPlaced(true);
+                                        }}
+                                    />
 
-                                        {showVideo ? (
-                                            // show the video plane when toggled
-                                            texture ? (
-                                                <VideoMesh texture={texture} videoRef={videoRef} position={placed ? transform.position : transform.position} rotation={placed ? transform.rotation : transform.rotation} />
-                                            ) : (
-                                                // fallback while texture prepares
-                                                <mesh position={placed ? transform.position : transform.position}>
-                                                    <boxGeometry args={[0.2, 0.2, 0.2]} />
-                                                    <meshBasicMaterial color={'#222'} />
-                                                </mesh>
-                                            )
-                                        ) : (
-                                            // show clickable cube that swaps to the video on click
-                                            <mesh
+                                    {showVideo ? (
+                                        // show the video plane when toggled
+                                        texture ? (
+                                            <VideoMesh
+                                                texture={texture}
+                                                videoRef={videoRef}
                                                 position={placed ? transform.position : transform.position}
-                                                onClick={async (e) => {
-                                                    // play video if available and then show
-                                                    const vid = videoRef.current;
-                                                    if (vid) {
-                                                        try { await vid.play(); } catch (e) {}
-                                                    }
-                                                    setShowVideo(true);
-                                                }}
-                                                pointerEventsType={{ deny: 'grab' }}
-                                            >
-                                                <boxGeometry args={[0.4, 0.8, 0.15]} />
-                                                <meshStandardMaterial color={'#0366d6'} metalness={0.3} roughness={0.6} />
+                                                rotation={placed ? transform.rotation : transform.rotation}
+                                            />
+                                        ) : (
+                                            // fallback while texture prepares
+                                            <mesh position={placed ? transform.position : transform.position}>
+                                                <boxGeometry args={[0.2, 0.2, 0.2]} />
+                                                <meshBasicMaterial color={'#222'} />
                                             </mesh>
-                                        )}
-                                    </>
-                                ) : (
-                                    <mesh>
-                                        <boxGeometry args={[0.2, 0.2, 0.2]} />
-                                        <meshNormalMaterial />
-                                    </mesh>
-                                )}
-                            </XR>
-                        </Canvas>
-                    )}
+                                        )
+                                    ) : (
+                                        // show clickable cube that swaps to the video on click
+                                        <mesh
+                                            position={placed ? transform.position : transform.position}
+                                            onClick={async (e) => {
+                                                // play video if available and then show
+                                                const vid = videoRef.current;
+                                                if (vid) {
+                                                    try {
+                                                        await vid.play();
+                                                    } catch (e) {}
+                                                }
+                                                setShowVideo(true);
+                                            }}
+                                            pointerEventsType={{ deny: 'grab' }}
+                                        >
+                                            <boxGeometry args={[0.4, 0.8, 0.15]} />
+                                            <meshStandardMaterial color={'#0366d6'} metalness={0.3} roughness={0.6} />
+                                        </mesh>
+                                    )}
+                                </>
+                            ) : (
+                                <mesh>
+                                    <boxGeometry args={[0.2, 0.2, 0.2]} />
+                                    <meshNormalMaterial />
+                                </mesh>
+                            )}
+                        </XR>
+                    </Canvas>
+                )}
             </div>
 
             <div className="mt-2 space-x-2">
-                <button className="px-3 py-1 bg-gray-200" onClick={() => { setPlaced(false); setTransform({ position: [0, 1.2, -1.5], rotation: [0, 0, 0] }); }}>
+                <button
+                    className="px-3 py-1 bg-gray-200"
+                    onClick={() => {
+                        setPlaced(false);
+                        setTransform({ position: [0, 1.2, -1.5], rotation: [0, 0, 0] });
+                    }}
+                >
                     Reset placement
                 </button>
             </div>
 
             <div className="mt-2 text-sm text-slate-500">
-                The AR view will overlay the video onto a plane. Move your phone around to place it so the speaker appears in the room.
+                The AR view will overlay the video onto a plane. Move your phone around to place it so the speaker
+                appears in the room.
             </div>
         </div>
     );
@@ -366,7 +415,9 @@ function PlacementHandler({ onPlace }) {
             const pos = new THREE.Vector3().copy(camera.position).add(dir.multiplyScalar(1.5));
             // rotation: face the camera
             const lookAt = new THREE.Vector3().copy(camera.position);
-            const meshQuat = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(pos, lookAt, new THREE.Vector3(0, 1, 0)));
+            const meshQuat = new THREE.Quaternion().setFromRotationMatrix(
+                new THREE.Matrix4().lookAt(pos, lookAt, new THREE.Vector3(0, 1, 0))
+            );
             const euler = new THREE.Euler().setFromQuaternion(meshQuat);
             onPlace([pos.x, pos.y, pos.z], [euler.x, euler.y, euler.z]);
         }

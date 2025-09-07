@@ -10,8 +10,8 @@
     },
     "dependencies": {
         "@netlify/blobs": "^8.2.0",
-    "@tensorflow-models/body-pix": "^2.0.5",
-    "@tensorflow/tfjs": "^4.11.0",
+        "@tensorflow-models/body-pix": "^2.0.5",
+        "@tensorflow/tfjs": "^4.11.0",
         "@react-three/fiber": "^9.3.0",
         "@react-three/xr": "^6.6.25",
         "blobshape": "^1.0.0",
