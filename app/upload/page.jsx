@@ -3,47 +3,109 @@
 import { useRef, useState, useEffect } from 'react';
 import * as bodyPix from '@tensorflow-models/body-pix';
 import '@tensorflow/tfjs';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { XR, createXRStore } from '@react-three/xr';
 import * as THREE from 'three';
 
 const store = createXRStore();
 
-function ARVideoPlane({ canvas, width, height, onTogglePlay }) {
+function ARVideoPlane({ canvas, video, width, height, onTogglePlay }) {
     const meshRef = useRef();
     const textureRef = useRef();
+    const videoTextureRef = useRef();
+    const { gl } = useThree();
 
+    // create or re-create textures bound to the current GL context.
+    // Use canvas mask texture when available, otherwise fall back to a VideoTexture.
     useEffect(() => {
-        if (!canvas) return;
-        textureRef.current = new THREE.CanvasTexture(canvas);
-        textureRef.current.encoding = THREE.sRGBEncoding;
-        textureRef.current.flipY = false;
-        textureRef.current.needsUpdate = true;
-    }, [canvas]);
+        if (!gl) return;
 
-    // keep texture updated each frame
-    useEffect(() => {
-        let mounted = true;
-        const id = () => {
-            if (!mounted) return;
-            if (textureRef.current) textureRef.current.needsUpdate = true;
-            requestAnimationFrame(id);
-        };
-        requestAnimationFrame(id);
+        // dispose previous canvas texture if it exists and will be replaced
+        if (textureRef.current && textureRef.current.image !== canvas) {
+            try {
+                textureRef.current.dispose();
+            } catch (e) {}
+            textureRef.current = null;
+        }
+
+        // if canvas provided, prefer CanvasTexture
+        if (canvas) {
+            if (!textureRef.current) {
+                textureRef.current = new THREE.CanvasTexture(canvas);
+                textureRef.current.encoding = THREE.sRGBEncoding;
+                textureRef.current.flipY = false;
+                textureRef.current.minFilter = THREE.LinearFilter;
+                textureRef.current.magFilter = THREE.LinearFilter;
+            }
+            // dispose any existing video texture
+            if (videoTextureRef.current) {
+                try {
+                    videoTextureRef.current.dispose();
+                } catch (e) {}
+                videoTextureRef.current = null;
+            }
+        } else if (video) {
+            // create a VideoTexture fallback so the plane is visible immediately in AR
+            if (!videoTextureRef.current) {
+                videoTextureRef.current = new THREE.VideoTexture(video);
+                videoTextureRef.current.encoding = THREE.sRGBEncoding;
+                videoTextureRef.current.flipY = true;
+                videoTextureRef.current.minFilter = THREE.LinearFilter;
+                videoTextureRef.current.magFilter = THREE.LinearFilter;
+            }
+        }
+
+        if (meshRef.current) {
+            meshRef.current.frustumCulled = false;
+            meshRef.current.renderOrder = 999;
+            if (meshRef.current.material) meshRef.current.material.needsUpdate = true;
+        }
+
         return () => {
-            mounted = false;
+            // do not aggressively dispose videoTexture here (will be recreated if needed)
         };
-    }, []);
+    }, [canvas, video, gl]);
+
+    // ensure textures update each frame
+    useFrame(() => {
+        if (textureRef.current) textureRef.current.needsUpdate = true;
+        if (videoTextureRef.current) videoTextureRef.current.needsUpdate = true;
+    });
 
     const aspect = width && height ? width / height : 1;
-    const planeHeight = 2; // meters tall (approx person height)
+    const planeHeight = 2;
     const planeWidth = planeHeight * aspect;
 
+    const activeMap = textureRef.current || videoTextureRef.current || null;
+
     return (
-        <mesh ref={meshRef} position={[0, planeHeight / 2, -4]} onClick={onTogglePlay} castShadow receiveShadow>
-            <planeGeometry args={[planeWidth, planeHeight]} />
-            <meshBasicMaterial transparent={true} toneMapped={false} map={textureRef.current} side={THREE.DoubleSide} />
-        </mesh>
+        <>
+            <mesh
+                ref={meshRef}
+                position={[0, planeHeight / 2, -4]}
+                onClick={onTogglePlay}
+                castShadow
+                receiveShadow
+                renderOrder={999}
+            >
+                <planeGeometry args={[planeWidth, planeHeight]} />
+                <meshBasicMaterial
+                    transparent={true}
+                    toneMapped={false}
+                    map={activeMap}
+                    side={THREE.DoubleSide}
+                    depthTest={false}
+                    depthWrite={false}
+                    alphaTest={0.01}
+                />
+            </mesh>
+
+            {/* debug marker: small red box to verify visibility inside AR sessions */}
+            <mesh position={[0, planeHeight + 0.2, -4]}>
+                <boxGeometry args={[0.15, 0.15, 0.15]} />
+                <meshBasicMaterial color={'red'} />
+            </mesh>
+        </>
     );
 }
 
@@ -188,22 +250,45 @@ export default function Page() {
 
             <div className="mb-4">
                 <input type="file" accept="video/*" onChange={handleFile} />
-                <button className="ml-2 px-3 py-1 border" onClick={() => store.enterAR()} disabled={!videoURL}>
+                <button
+                    className="ml-2 px-3 py-1 border"
+                    onClick={() => {
+                        // ensure the video is playing (user gesture) before entering AR so segmentation has frames
+                        if (videoRef.current) {
+                            videoRef.current.play().catch(() => {});
+                        }
+                        store.enterAR();
+                    }}
+                    disabled={!videoURL}
+                >
                     Enter AR
                 </button>
             </div>
 
-            <div style={{ display: 'none' }}>
+            {/* keep the video and mask canvas rendered but visually hidden; avoid display:none so the canvas can be used as a texture */}
+            <div
+                style={{
+                    position: 'fixed',
+                    left: 0,
+                    top: 0,
+                    width: 1,
+                    height: 1,
+                    opacity: 0,
+                    pointerEvents: 'none',
+                    zIndex: -9999
+                }}
+            >
                 <video ref={videoRef} src={videoURL || null} crossOrigin="anonymous" playsInline muted loop />
                 <canvas ref={maskCanvasRef} />
             </div>
 
-            <div style={{ width: '100%', height: 500, background: '#111' }}>
-                <Canvas>
+            <div style={{ width: '100%', height: '100vh', background: '#111', touchAction: 'none' }}>
+                <Canvas gl={{ preserveDrawingBuffer: true }}>
                     <XR store={store}>
                         {maskCanvasRef.current && videoURL && videoSize.width > 0 && model && (
                             <ARVideoPlane
                                 canvas={maskCanvasRef.current}
+                                video={videoRef.current}
                                 width={videoSize.width}
                                 height={videoSize.height}
                                 onTogglePlay={togglePlay}
