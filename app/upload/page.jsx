@@ -40,7 +40,7 @@ function ARVideoPlane({ canvas, width, height, onTogglePlay }) {
     const planeWidth = planeHeight * aspect;
 
     return (
-        <mesh ref={meshRef} position={[0, planeHeight / 2, -1]} onClick={onTogglePlay} castShadow receiveShadow>
+        <mesh ref={meshRef} position={[0, planeHeight / 2, -4]} onClick={onTogglePlay} castShadow receiveShadow>
             <planeGeometry args={[planeWidth, planeHeight]} />
             <meshBasicMaterial transparent={true} toneMapped={false} map={textureRef.current} side={THREE.DoubleSide} />
         </mesh>
@@ -85,7 +85,7 @@ export default function Page() {
 
         async function frameLoop() {
             if (!running) return;
-            if (!model || video.paused || video.ended) {
+            if (!model || video.ended) {
                 rafId = requestAnimationFrame(frameLoop);
                 return;
             }
@@ -98,8 +98,7 @@ export default function Page() {
             canvas.height = video.videoHeight;
             setVideoSize({ width: video.videoWidth, height: video.videoHeight });
 
-            // Draw the current video frame to the canvas
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Draw the current video frame to the canvas (skipped here; we'll compose flipped below)
 
             try {
                 const segmentation = await model.segmentPerson(video, {
@@ -108,22 +107,42 @@ export default function Page() {
                     maxDetections: 1
                 });
 
-                const mask = bodyPix.toMask(segmentation, { r: 0, g: 0, b: 0, a: 0 }, { r: 0, g: 0, b: 0, a: 255 });
+                // Count positive person pixels; if too few, fall back to drawing the video unmasked
+                const segData = segmentation.data;
+                let count = 0;
+                for (let i = 0; i < segData.length; i++) {
+                    if (segData[i]) count++;
+                }
 
-                // create temporary canvas for mask
-                const maskCanvas = document.createElement('canvas');
-                maskCanvas.width = canvas.width;
-                maskCanvas.height = canvas.height;
-                const mctx = maskCanvas.getContext('2d');
-                mctx.putImageData(mask, 0, 0);
+                if (count < 100) {
+                    // fallback: draw video (flipped) without mask to avoid full transparency when segmentation fails
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.save();
+                    ctx.translate(0, canvas.height);
+                    ctx.scale(1, -1);
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    ctx.restore();
+                } else {
+                    const mask = bodyPix.toMask(segmentation, { r: 0, g: 0, b: 0, a: 255 }, { r: 0, g: 0, b: 0, a: 0 });
 
-                // Apply mask as alpha: draw video, then keep only masked area
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                ctx.save();
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                ctx.globalCompositeOperation = 'destination-in';
-                ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
-                ctx.restore();
+                    // create temporary canvas for mask
+                    const maskCanvas = document.createElement('canvas');
+                    maskCanvas.width = canvas.width;
+                    maskCanvas.height = canvas.height;
+                    const mctx = maskCanvas.getContext('2d');
+                    mctx.putImageData(mask, 0, 0);
+
+                    // Apply mask as alpha: draw video with a vertical flip (fixes upside-down mobiles),
+                    // then keep only the masked (person) area so the background is transparent.
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.save();
+                    ctx.translate(0, canvas.height);
+                    ctx.scale(1, -1);
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    ctx.globalCompositeOperation = 'destination-in';
+                    ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+                    ctx.restore();
+                }
             } catch (err) {
                 console.error('segmentation error', err);
             }
@@ -182,7 +201,7 @@ export default function Page() {
             <div style={{ width: '100%', height: 500, background: '#111' }}>
                 <Canvas>
                     <XR store={store}>
-                        {maskCanvasRef.current && videoURL && (
+                        {maskCanvasRef.current && videoURL && videoSize.width > 0 && model && (
                             <ARVideoPlane
                                 canvas={maskCanvasRef.current}
                                 width={videoSize.width}
