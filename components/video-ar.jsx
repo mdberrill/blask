@@ -141,6 +141,7 @@ function VideoPlane({ texture, videoRef }) {
     const { camera } = useThree();
     const [size, setSize] = useState([1.6, 0.9]);
     const [placed, setPlaced] = useState(false);
+    const [material, setMaterial] = useState(null);
 
     useFrame(() => {
         if (texture) texture.needsUpdate = true;
@@ -166,6 +167,56 @@ function VideoPlane({ texture, videoRef }) {
         }
     }, [videoRef]);
 
+    // create a ShaderMaterial for chroma keying the video texture
+    useEffect(() => {
+        if (!texture) return;
+
+        const mat = new THREE.ShaderMaterial({
+            uniforms: {
+                uTexture: { value: texture },
+                keyColor: { value: new THREE.Color(0x00ff00) },
+                similarity: { value: 0.35 },
+                smoothness: { value: 0.08 }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D uTexture;
+                uniform vec3 keyColor;
+                uniform float similarity;
+                uniform float smoothness;
+                varying vec2 vUv;
+
+                void main() {
+                    vec4 color = texture2D(uTexture, vUv);
+                    float chromaDist = distance(color.rgb, keyColor);
+                    float chromaAlpha = smoothstep(similarity, similarity + smoothness, chromaDist);
+                    // Preserve any existing alpha in the source texture (useful when the video already has transparency)
+                    float outAlpha = color.a * chromaAlpha;
+                    gl_FragColor = vec4(color.rgb, outAlpha);
+                }
+            `,
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            alphaTest: 0.01
+        });
+
+        setMaterial(mat);
+
+        return () => {
+            try {
+                mat.dispose();
+            } catch (e) {}
+            setMaterial(null);
+        };
+    }, [texture]);
+
     // lock placement when user taps / selects in XR (user expectation: tap to keep)
     useEffect(() => {
         function handleClick() {
@@ -178,14 +229,12 @@ function VideoPlane({ texture, videoRef }) {
     return (
         <mesh ref={meshRef} position={[0, 1.2, -1.5]} rotation={[0, 0, 0]}>
             <planeGeometry args={size} />
-            <meshBasicMaterial
-                toneMapped={false}
-                map={texture}
-                side={THREE.DoubleSide}
-                transparent={true}
-                alphaTest={0.01}
-                depthWrite={false}
-            />
+            {material ? (
+                // attach the shader material
+                <primitive object={material} attach="material" />
+            ) : (
+                <meshBasicMaterial toneMapped={false} map={texture} />
+            )}
         </mesh>
     );
 }

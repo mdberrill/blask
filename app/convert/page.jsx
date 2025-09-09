@@ -103,7 +103,11 @@ export default function ConvertPage() {
                         </button>
                     </div>
 
-                    {showAr && <div style={{ marginTop: 12 }}><VideoAR videoSrc={convertedUrl} /></div>}
+                    {showAr && (
+                        <div style={{ marginTop: 12 }}>
+                            <VideoAR videoSrc={convertedUrl} />
+                        </div>
+                    )}
                 </div>
             )}
         </div>
