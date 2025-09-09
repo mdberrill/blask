@@ -30,7 +30,7 @@ export default function VideoAR({ videoSrc }) {
         vid.style.height = '1px';
         document.body.appendChild(vid);
 
-    let createdTex = null;
+        let createdTex = null;
 
         async function handleCanPlay() {
             // create video texture
@@ -60,7 +60,10 @@ export default function VideoAR({ videoSrc }) {
                 for (let y = 0; y < sampleH; y++) {
                     for (let x = 0; x < sampleW; x++) {
                         const i = (y * sampleW + x) * 4;
-                        const r = img[i], g = img[i + 1], b = img[i + 2], a = img[i + 3];
+                        const r = img[i],
+                            g = img[i + 1],
+                            b = img[i + 2],
+                            a = img[i + 3];
                         if (a && a < 250) foundAlpha = true;
                         if (g > 100 && g > r * 1.2 && g > b * 1.2) foundGreen = true;
                         if (foundAlpha || foundGreen) break;
@@ -80,7 +83,7 @@ export default function VideoAR({ videoSrc }) {
                 .catch(() => setPlaying(false));
         }
 
-    vid.addEventListener('canplay', handleCanPlay);
+        vid.addEventListener('canplay', handleCanPlay);
         videoRef.current = vid;
 
         return () => {
@@ -156,8 +159,8 @@ export default function VideoAR({ videoSrc }) {
                 {(xrSupported === true || preview3D) && (
                     <Canvas gl={{ alpha: true, preserveDrawingBuffer: false }}>
                         <XR store={store} inline={!xrSupported || preview3D}>
-                {texture ? (
-                    <VideoPlane texture={texture} videoRef={videoRef} keyMode={keyMode} />
+                            {texture ? (
+                                <VideoPlane texture={texture} videoRef={videoRef} keyMode={keyMode} />
                             ) : (
                                 <mesh>
                                     <boxGeometry args={[0.2, 0.2, 0.2]} />
@@ -268,7 +271,14 @@ function VideoPlane({ texture, videoRef, keyMode = 'auto' }) {
             {keyMode === 'chroma' && material ? (
                 <primitive object={material} attach="material" />
             ) : keyMode === 'alpha' ? (
-                <meshBasicMaterial toneMapped={false} map={texture} side={THREE.DoubleSide} transparent={true} alphaTest={0.01} depthWrite={false} />
+                <meshBasicMaterial
+                    toneMapped={false}
+                    map={texture}
+                    side={THREE.DoubleSide}
+                    transparent={true}
+                    alphaTest={0.01}
+                    depthWrite={false}
+                />
             ) : (
                 <meshBasicMaterial toneMapped={false} map={texture} />
             )}
