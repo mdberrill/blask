@@ -13,6 +13,7 @@ export default function VideoAR({ videoSrc }) {
     const [playing, setPlaying] = useState(false);
     const [xrSupported, setXrSupported] = useState(null);
     const [preview3D, setPreview3D] = useState(false);
+    const [keyMode, setKeyMode] = useState('auto'); // 'alpha' | 'chroma' | 'none' | 'auto'
 
     useEffect(() => {
         if (!videoSrc) return;
@@ -29,9 +30,10 @@ export default function VideoAR({ videoSrc }) {
         vid.style.height = '1px';
         document.body.appendChild(vid);
 
-        let createdTex = null;
+    let createdTex = null;
 
-        function handleCanPlay() {
+        async function handleCanPlay() {
+            // create video texture
             const tex = new THREE.VideoTexture(vid);
             tex.minFilter = THREE.LinearFilter;
             tex.magFilter = THREE.LinearFilter;
@@ -39,12 +41,46 @@ export default function VideoAR({ videoSrc }) {
             tex.premultiplyAlpha = false;
             createdTex = tex;
             setTexture(tex);
+
+            // draw one sample frame to an offscreen canvas to detect green-screen or alpha
+            try {
+                const w = vid.videoWidth || 640;
+                const h = vid.videoHeight || 360;
+                const sampleW = Math.max(1, Math.round(w / 8));
+                const sampleH = Math.max(1, Math.round(h / 8));
+                const c = document.createElement('canvas');
+                c.width = sampleW;
+                c.height = sampleH;
+                const ctx = c.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(vid, 0, 0, sampleW, sampleH);
+                const img = ctx.getImageData(0, 0, sampleW, sampleH).data;
+                let foundAlpha = false;
+                let foundGreen = false;
+                // sample a few pixels
+                for (let y = 0; y < sampleH; y++) {
+                    for (let x = 0; x < sampleW; x++) {
+                        const i = (y * sampleW + x) * 4;
+                        const r = img[i], g = img[i + 1], b = img[i + 2], a = img[i + 3];
+                        if (a && a < 250) foundAlpha = true;
+                        if (g > 100 && g > r * 1.2 && g > b * 1.2) foundGreen = true;
+                        if (foundAlpha || foundGreen) break;
+                    }
+                    if (foundAlpha || foundGreen) break;
+                }
+
+                if (foundAlpha) setKeyMode('alpha');
+                else if (foundGreen) setKeyMode('chroma');
+                else setKeyMode('none');
+            } catch (e) {
+                setKeyMode('none');
+            }
+
             vid.play()
                 .then(() => setPlaying(true))
                 .catch(() => setPlaying(false));
         }
 
-        vid.addEventListener('canplay', handleCanPlay);
+    vid.addEventListener('canplay', handleCanPlay);
         videoRef.current = vid;
 
         return () => {
@@ -120,8 +156,8 @@ export default function VideoAR({ videoSrc }) {
                 {(xrSupported === true || preview3D) && (
                     <Canvas gl={{ alpha: true, preserveDrawingBuffer: false }}>
                         <XR store={store} inline={!xrSupported || preview3D}>
-                            {texture ? (
-                                <VideoPlane texture={texture} videoRef={videoRef} />
+                {texture ? (
+                    <VideoPlane texture={texture} videoRef={videoRef} keyMode={keyMode} />
                             ) : (
                                 <mesh>
                                     <boxGeometry args={[0.2, 0.2, 0.2]} />
@@ -136,7 +172,7 @@ export default function VideoAR({ videoSrc }) {
     );
 }
 
-function VideoPlane({ texture, videoRef }) {
+function VideoPlane({ texture, videoRef, keyMode = 'auto' }) {
     const meshRef = useRef();
     const { camera } = useThree();
     const [size, setSize] = useState([1.6, 0.9]);
@@ -167,9 +203,10 @@ function VideoPlane({ texture, videoRef }) {
         }
     }, [videoRef]);
 
-    // create a ShaderMaterial for chroma keying the video texture
+    // create a ShaderMaterial for chroma keying the video texture only when requested
     useEffect(() => {
         if (!texture) return;
+        if (keyMode !== 'chroma') return;
 
         const mat = new THREE.ShaderMaterial({
             uniforms: {
@@ -196,7 +233,6 @@ function VideoPlane({ texture, videoRef }) {
                     vec4 color = texture2D(uTexture, vUv);
                     float chromaDist = distance(color.rgb, keyColor);
                     float chromaAlpha = smoothstep(similarity, similarity + smoothness, chromaDist);
-                    // Preserve any existing alpha in the source texture (useful when the video already has transparency)
                     float outAlpha = color.a * chromaAlpha;
                     gl_FragColor = vec4(color.rgb, outAlpha);
                 }
@@ -215,7 +251,7 @@ function VideoPlane({ texture, videoRef }) {
             } catch (e) {}
             setMaterial(null);
         };
-    }, [texture]);
+    }, [texture, keyMode]);
 
     // lock placement when user taps / selects in XR (user expectation: tap to keep)
     useEffect(() => {
@@ -229,9 +265,10 @@ function VideoPlane({ texture, videoRef }) {
     return (
         <mesh ref={meshRef} position={[0, 1.2, -1.5]} rotation={[0, 0, 0]}>
             <planeGeometry args={size} />
-            {material ? (
-                // attach the shader material
+            {keyMode === 'chroma' && material ? (
                 <primitive object={material} attach="material" />
+            ) : keyMode === 'alpha' ? (
+                <meshBasicMaterial toneMapped={false} map={texture} side={THREE.DoubleSide} transparent={true} alphaTest={0.01} depthWrite={false} />
             ) : (
                 <meshBasicMaterial toneMapped={false} map={texture} />
             )}
